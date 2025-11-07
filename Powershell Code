@@ -28,13 +28,9 @@ $VersionInfo.Cursor = [System.Windows.Forms.Cursors]::Hand
 $VersionInfo.Font = New-Object System.Drawing.Font("Segoe UI",10,[System.Drawing.FontStyle]::Underline)
 $form.Controls.Add($VersionInfo)
 
-# Click event to open URL
 $VersionInfo.Add_Click({
     Start-Process "https://github.com/Shiftyprojects"
 })
-
-
-
 
 # --- Target Drive ---
 $lblDrive = New-Object System.Windows.Forms.Label
@@ -137,6 +133,7 @@ $btnBackup.Text = "Start Backup"
 $btnBackup.BackColor = [System.Drawing.Color]::FromArgb(0,120,215)
 $btnBackup.ForeColor = [System.Drawing.Color]::White
 $btnBackup.FlatStyle = "Flat"
+$btnBackup.UseVisualStyleBackColor = $false
 $form.Controls.Add($btnBackup)
 
 $btnRecover = New-Object System.Windows.Forms.Button
@@ -146,9 +143,12 @@ $btnRecover.Text = "Recover Backup"
 $btnRecover.BackColor = [System.Drawing.Color]::FromArgb(0,120,215)
 $btnRecover.ForeColor = [System.Drawing.Color]::White
 $btnRecover.FlatStyle = "Flat"
+$btnRecover.UseVisualStyleBackColor = $false
 $form.Controls.Add($btnRecover)
 
 # --- Functions ---
+$global:overwriteAll = $false
+
 function Get-AvailableDrives {
     Get-Volume | Where-Object { $_.DriveLetter -and $_.DriveLetter -ne 'C' } | ForEach-Object {
         "$($_.DriveLetter): [$($_.FileSystem)]"
@@ -279,13 +279,32 @@ $btnBackup.Add_Click({
             if (Test-Path $sourcePath) {
                 $destPath = Join-Path $backupRoot "$user\$folderName"
                 New-Item -ItemType Directory -Force -Path $destPath | Out-Null
+
                 $txtStatus.AppendText("Backing up $folderName for $user`r`n")
-                Copy-Item $sourcePath\* $destPath -Recurse -Force -ErrorAction SilentlyContinue
+
+                $files = Get-ChildItem $sourcePath -Recurse -File -ErrorAction SilentlyContinue
+                $count = 0
+                $totalFiles = $files.Count
+                foreach ($file in $files) {
+                    $relPath = $file.FullName.Substring($sourcePath.Length).TrimStart('\')
+                    $destFile = Join-Path $destPath $relPath
+                    $destDir = Split-Path $destFile -Parent
+                    if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Force -Path $destDir | Out-Null }
+
+                    Copy-Item $file.FullName -Destination $destFile -Force -ErrorAction SilentlyContinue
+
+                    $count++
+                    if ($totalFiles -gt 0) {
+                        $progressBar.Value = [math]::Round(($count / $totalFiles) * 100)
+                        $form.Refresh()
+                    }
+                }
             } else {
                 $txtStatus.AppendText("Skipped $folderName for $user (not found)`r`n")
             }
         }
     }
+    $progressBar.Value = 0
     $txtStatus.AppendText("Backup completed!`r`n")
     [System.Windows.Forms.MessageBox]::Show("Backup completed successfully!","Success")
 })
@@ -295,7 +314,6 @@ $btnRecover.Add_Click({
     $folderBrowser = New-Object System.Windows.Forms.FolderBrowserDialog
     $folderBrowser.Description = "Select Backup Folder to Restore"
 
-    # --- Use selected drive as default if available ---
     if ($cbDrives.SelectedItem) {
         $driveLetter = ($cbDrives.SelectedItem -split ':')[0]
         if ($driveLetter -match '^[A-Z]$') { $folderBrowser.SelectedPath = "$driveLetter`:\" }
@@ -340,9 +358,9 @@ $btnRecover.Add_Click({
         $btnRecStart.BackColor = [System.Drawing.Color]::FromArgb(0,120,215)
         $btnRecStart.ForeColor = [System.Drawing.Color]::White
         $btnRecStart.FlatStyle = "Flat"
+        $btnRecStart.UseVisualStyleBackColor = $false
         $recForm.Controls.Add($btnRecStart)
 
-        # Recovery logic with error handling for no selections
         $btnRecStart.Add_Click({
             $selectedRecUsers = $recUserCheckboxes.Keys | Where-Object { $recUserCheckboxes[$_].Checked }
             if ($selectedRecUsers.Count -eq 0) { [System.Windows.Forms.MessageBox]::Show("Please select at least one user to recover.","Error"); return }
@@ -362,6 +380,8 @@ $btnRecover.Add_Click({
                     $destPath = Join-Path $destUserPath $folderName
                     if (Test-Path $sourcePath) {
                         $files = Get-ChildItem $sourcePath -Recurse -File
+                        $count = 0
+                        $totalFiles = $files.Count
                         foreach ($file in $files) {
                             $relPath = $file.FullName.Substring($sourcePath.Length).TrimStart('\')
                             $destFile = Join-Path $destPath $relPath
@@ -369,14 +389,41 @@ $btnRecover.Add_Click({
                             if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Force -Path $destDir | Out-Null }
 
                             if (Test-Path $destFile) {
-                                $resp = [System.Windows.Forms.MessageBox]::Show("File exists: $destFile`r`nOverwrite?","Confirm Overwrite",[System.Windows.Forms.MessageBoxButtons]::YesNoCancel)
-                                if ($resp -eq [System.Windows.Forms.DialogResult]::Yes) {
+                                if (-not $global:overwriteAll) {
+                                    $resp = [System.Windows.Forms.MessageBox]::Show(
+                                        "File exists: $destFile`r`nOverwrite?",
+                                        "Confirm Overwrite",
+                                        [System.Windows.Forms.MessageBoxButtons]::YesNoCancel,
+                                        [System.Windows.Forms.MessageBoxIcon]::Question
+                                    )
+                                    if ($resp -eq [System.Windows.Forms.DialogResult]::Yes) {
+                                        Copy-Item $file.FullName -Destination $destFile -Force
+                                    } elseif ($resp -eq [System.Windows.Forms.DialogResult]::No) {
+                                        continue
+                                    } elseif ($resp -eq [System.Windows.Forms.DialogResult]::Cancel) {
+                                        return
+                                    }
+
+                                    $allResp = [System.Windows.Forms.MessageBox]::Show(
+                                        "Apply 'Yes to All' for remaining files?",
+                                        "Overwrite All",
+                                        [System.Windows.Forms.MessageBoxButtons]::YesNo
+                                    )
+                                    if ($allResp -eq [System.Windows.Forms.DialogResult]::Yes) {
+                                        $global:overwriteAll = $true
+                                    }
+                                } else {
                                     Copy-Item $file.FullName -Destination $destFile -Force
-                                } elseif ($resp -eq [System.Windows.Forms.DialogResult]::Cancel) {
-                                    return
                                 }
                             } else {
                                 Copy-Item $file.FullName -Destination $destFile -Force
+                            }
+
+                            # Update progress bar
+                            $count++
+                            if ($totalFiles -gt 0) {
+                                $progressBar.Value = [math]::Round(($count / $totalFiles) * 100)
+                                $form.Refresh()
                             }
                         }
                         $txtStatus.AppendText("Recovered $folderName for $user`r`n")
@@ -385,6 +432,7 @@ $btnRecover.Add_Click({
                     }
                 }
             }
+            $progressBar.Value = 0
             [System.Windows.Forms.MessageBox]::Show("Recovery completed!","Success")
             $recForm.Close()
         })
