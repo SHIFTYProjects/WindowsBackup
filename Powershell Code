@@ -1,0 +1,397 @@
+################################################
+#Powershell GUI Code                           #
+#Run with Powershell                           #
+#Created 11.7.2025                             #
+#SHIFTY                                        #
+#Created to assist in backing up user Folders  #
+################################################
+
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
+# --- Main Form ---
+$form = New-Object System.Windows.Forms.Form
+$form.Text = "User Profile Backup & Recovery"
+$form.Size = New-Object System.Drawing.Size(950,700)
+$form.StartPosition = "CenterScreen"
+$form.BackColor = [System.Drawing.Color]::FromArgb(30,30,30)
+$form.Font = New-Object System.Drawing.Font("Segoe UI",10)
+$form.AutoScaleMode = "Dpi"
+
+# Version Label as clickable link
+$VersionInfo = New-Object System.Windows.Forms.Label
+$VersionInfo.Location = [System.Drawing.Point]::new(20,640)
+$VersionInfo.Size = [System.Drawing.Size]::new(400,25)
+$VersionInfo.Text = "SHIFY TOOLS github.com/Shiftyprojects"
+$VersionInfo.ForeColor = [System.Drawing.Color]::DodgerBlue
+$VersionInfo.Cursor = [System.Windows.Forms.Cursors]::Hand
+$VersionInfo.Font = New-Object System.Drawing.Font("Segoe UI",10,[System.Drawing.FontStyle]::Underline)
+$form.Controls.Add($VersionInfo)
+
+# Click event to open URL
+$VersionInfo.Add_Click({
+    Start-Process "https://github.com/Shiftyprojects"
+})
+
+
+
+
+# --- Target Drive ---
+$lblDrive = New-Object System.Windows.Forms.Label
+$lblDrive.Location = [System.Drawing.Point]::new(20,20)
+$lblDrive.Size = [System.Drawing.Size]::new(150,25)
+$lblDrive.Text = "Select Target Drive:"
+$lblDrive.ForeColor = [System.Drawing.Color]::White
+$form.Controls.Add($lblDrive)
+
+$cbDrives = New-Object System.Windows.Forms.ComboBox
+$cbDrives.Location = [System.Drawing.Point]::new(180,20)
+$cbDrives.Size = [System.Drawing.Size]::new(200,25)
+$form.Controls.Add($cbDrives)
+
+$lblDriveInfo = New-Object System.Windows.Forms.Label
+$lblDriveInfo.Location = [System.Drawing.Point]::new(400,20)
+$lblDriveInfo.Size = [System.Drawing.Size]::new(520,25)
+$lblDriveInfo.ForeColor = [System.Drawing.Color]::White
+$lblDriveInfo.Text = "Drive Info: N/A"
+$form.Controls.Add($lblDriveInfo)
+
+$lblDriveWarning = New-Object System.Windows.Forms.Label
+$lblDriveWarning.Location = [System.Drawing.Point]::new(400,45)
+$lblDriveWarning.Size = [System.Drawing.Size]::new(520,25)
+$lblDriveWarning.ForeColor = [System.Drawing.Color]::White
+$lblDriveWarning.Text = ""
+$form.Controls.Add($lblDriveWarning)
+
+# --- User Selection Panel ---
+$lblUsers = New-Object System.Windows.Forms.Label
+$lblUsers.Location = [System.Drawing.Point]::new(20,60)
+$lblUsers.Size = [System.Drawing.Size]::new(200,25)
+$lblUsers.Text = "Select User Profile(s):"
+$lblUsers.ForeColor = [System.Drawing.Color]::White
+$form.Controls.Add($lblUsers)
+
+$panelUsers = New-Object System.Windows.Forms.Panel
+$panelUsers.Location = [System.Drawing.Point]::new(20,90)
+$panelUsers.Size = [System.Drawing.Size]::new(300,250)
+$panelUsers.AutoScroll = $true
+$panelUsers.BackColor = [System.Drawing.Color]::FromArgb(40,40,40)
+$form.Controls.Add($panelUsers)
+
+# --- Folder Selection ---
+$grpFolders = New-Object System.Windows.Forms.GroupBox
+$grpFolders.Location = [System.Drawing.Point]::new(340,90)
+$grpFolders.Size = [System.Drawing.Size]::new(580,220)
+$grpFolders.Text = "Select Folders to Back Up or Restore"
+$grpFolders.ForeColor = [System.Drawing.Color]::White
+$grpFolders.BackColor = [System.Drawing.Color]::FromArgb(50,50,50)
+$form.Controls.Add($grpFolders)
+
+$folders = @("Desktop","Documents","Pictures","Videos","Downloads","Music")
+$checkboxes = @{}
+
+for ($i=0; $i -lt $folders.Count; $i++) {
+    $chk = New-Object System.Windows.Forms.CheckBox
+    $chk.Location = [System.Drawing.Point]::new(10, 20 + ($i*35))
+    $chk.Size = [System.Drawing.Size]::new(200,25)
+    $chk.Text = $folders[$i]
+    $chk.ForeColor = [System.Drawing.Color]::White
+    $chk.BackColor = [System.Drawing.Color]::FromArgb(50,50,50)
+    $grpFolders.Controls.Add($chk)
+    $checkboxes[$folders[$i]] = $chk
+}
+
+# --- Total Size Label ---
+$lblSize = New-Object System.Windows.Forms.Label
+$lblSize.Location = [System.Drawing.Point]::new(340,320)
+$lblSize.Size = [System.Drawing.Size]::new(580,25)
+$lblSize.ForeColor = [System.Drawing.Color]::White
+$lblSize.Text = "Total Selected Folder Size: 0 MB"
+$form.Controls.Add($lblSize)
+
+# --- Progress Bar ---
+$progressBar = New-Object System.Windows.Forms.ProgressBar
+$progressBar.Location = [System.Drawing.Point]::new(20,610)
+$progressBar.Size = [System.Drawing.Size]::new(900,25)
+$progressBar.Minimum = 0
+$progressBar.Maximum = 100
+$progressBar.Value = 0
+$form.Controls.Add($progressBar)
+
+# --- Status TextBox ---
+$txtStatus = New-Object System.Windows.Forms.TextBox
+$txtStatus.Location = [System.Drawing.Point]::new(20,430)
+$txtStatus.Size = [System.Drawing.Size]::new(900,170)
+$txtStatus.Multiline = $true
+$txtStatus.ScrollBars = "Vertical"
+$txtStatus.ReadOnly = $true
+$txtStatus.BackColor = [System.Drawing.Color]::FromArgb(40,40,40)
+$txtStatus.ForeColor = [System.Drawing.Color]::White
+$form.Controls.Add($txtStatus)
+
+# --- Backup & Recover Buttons ---
+$btnBackup = New-Object System.Windows.Forms.Button
+$btnBackup.Location = [System.Drawing.Point]::new(20,380)
+$btnBackup.Size = [System.Drawing.Size]::new(150,30)
+$btnBackup.Text = "Start Backup"
+$btnBackup.BackColor = [System.Drawing.Color]::FromArgb(0,120,215)
+$btnBackup.ForeColor = [System.Drawing.Color]::White
+$btnBackup.FlatStyle = "Flat"
+$form.Controls.Add($btnBackup)
+
+$btnRecover = New-Object System.Windows.Forms.Button
+$btnRecover.Location = [System.Drawing.Point]::new(180,380)
+$btnRecover.Size = [System.Drawing.Size]::new(150,30)
+$btnRecover.Text = "Recover Backup"
+$btnRecover.BackColor = [System.Drawing.Color]::FromArgb(0,120,215)
+$btnRecover.ForeColor = [System.Drawing.Color]::White
+$btnRecover.FlatStyle = "Flat"
+$form.Controls.Add($btnRecover)
+
+# --- Functions ---
+function Get-AvailableDrives {
+    Get-Volume | Where-Object { $_.DriveLetter -and $_.DriveLetter -ne 'C' } | ForEach-Object {
+        "$($_.DriveLetter): [$($_.FileSystem)]"
+    }
+}
+
+function Get-UserProfiles {
+    Get-ChildItem "C:\Users" -Directory |
+    Where-Object { $_.Name -notin @("All Users","Default","Default User","Public") } |
+    Select-Object -ExpandProperty Name
+}
+
+function Get-FolderSizeMB($path) {
+    if (Test-Path $path) {
+        $bytes = (Get-ChildItem $path -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+        return [math]::Round($bytes / 1MB,2)
+    } else { return 0 }
+}
+
+function Get-DriveInfo($driveLetter) {
+    try {
+        $vol = Get-Volume -DriveLetter $driveLetter -ErrorAction Stop
+        $sizeGB = [math]::Round($vol.Size / 1GB,2)
+        $freeGB = [math]::Round($vol.SizeRemaining / 1GB,2)
+        $manufacturer = "Unknown"
+        return @{
+            FreeGB = $freeGB
+            TotalGB = $sizeGB
+            Manufacturer = $manufacturer
+        }
+    } catch {
+        return $null
+    }
+}
+
+function UpdateDriveInfo {
+    $driveItem = $cbDrives.SelectedItem
+    if ($driveItem) {
+        $driveLetter = ($driveItem -split ':')[0]
+        if ($driveLetter -match '^[A-Z]$') {
+            $info = Get-DriveInfo $driveLetter
+            if ($info) {
+                $lblDriveInfo.Text = "Drive: $driveLetter | $($info.Manufacturer) | Free $($info.FreeGB)GB of $($info.TotalGB)GB"
+                $totalSizeMB = [math]::Round($lblSize.Text -replace '[^\d.]','')
+                $totalSizeGB = $totalSizeMB / 1024
+                if ($totalSizeGB -gt $info.FreeGB) {
+                    $lblDriveInfo.ForeColor = [System.Drawing.Color]::Red
+                    $lblDriveWarning.Text = "Error: Not enough free space!"
+                    $lblDriveWarning.ForeColor = [System.Drawing.Color]::Red
+                } elseif ($totalSizeGB -gt $info.FreeGB * 0.5) {
+                    $lblDriveInfo.ForeColor = [System.Drawing.Color]::Yellow
+                    $lblDriveWarning.Text = "Warning: Drive space low."
+                    $lblDriveWarning.ForeColor = [System.Drawing.Color]::Yellow
+                } else {
+                    $lblDriveInfo.ForeColor = [System.Drawing.Color]::Green
+                    $lblDriveWarning.Text = ""
+                }
+            } else {
+                $lblDriveInfo.Text = "Drive info not available"
+                $lblDriveInfo.ForeColor = [System.Drawing.Color]::White
+                $lblDriveWarning.Text = ""
+            }
+        }
+    }
+}
+
+function UpdateTotalSize {
+    $totalSizeMB = 0
+    $selectedUsers = $userCheckboxes.Keys | Where-Object { $userCheckboxes[$_].Checked }
+    foreach ($user in $selectedUsers) {
+        foreach ($folder in $folders) {
+            if ($checkboxes[$folder].Checked) {
+                $path = Join-Path "C:\Users\$user" $folder
+                $totalSizeMB += Get-FolderSizeMB $path
+            }
+        }
+    }
+    $lblSize.Text = "Total Selected Folder Size: $totalSizeMB MB"
+    UpdateDriveInfo
+}
+
+# --- Populate Drives ---
+$cbDrives.Items.AddRange(@((Get-AvailableDrives)))
+
+# --- Populate User Checkboxes ---
+$userCheckboxes = @{}
+$users = Get-UserProfiles
+for ($i=0; $i -lt $users.Count; $i++) {
+    $chk = New-Object System.Windows.Forms.CheckBox
+    $chk.Location = [System.Drawing.Point]::new(10, 10 + ($i*30))
+    $chk.Size = [System.Drawing.Size]::new(250,25)
+    $chk.Text = $users[$i]
+    $chk.ForeColor = [System.Drawing.Color]::White
+    $chk.BackColor = [System.Drawing.Color]::FromArgb(40,40,40)
+    $panelUsers.Controls.Add($chk)
+    $userCheckboxes[$users[$i]] = $chk
+}
+
+# --- Bind Events ---
+foreach ($folder in $folders) { $checkboxes[$folder].Add_CheckedChanged({ UpdateTotalSize }) }
+foreach ($user in $userCheckboxes.Keys) { $userCheckboxes[$user].Add_CheckedChanged({ UpdateTotalSize }) }
+$cbDrives.Add_SelectedIndexChanged({ UpdateDriveInfo })
+
+# --- Backup Button Logic ---
+$btnBackup.Add_Click({
+    $driveItem = $cbDrives.SelectedItem
+    if (-not $driveItem) { [System.Windows.Forms.MessageBox]::Show("Please select a target drive.","Error") ; return }
+
+    $selectedUsers = $userCheckboxes.Keys | Where-Object { $userCheckboxes[$_].Checked }
+    if ($selectedUsers.Count -eq 0) { [System.Windows.Forms.MessageBox]::Show("Please select at least one user profile.","Error"); return }
+
+    $selectedFolders = $folders | Where-Object { $checkboxes[$_].Checked }
+    if ($selectedFolders.Count -eq 0) { [System.Windows.Forms.MessageBox]::Show("Please select at least one folder.","Error"); return }
+
+    $driveLetter = ($driveItem -split ':')[0]
+    $drivePath = "${driveLetter}:\"
+
+    $timestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+    $computerName = $env:COMPUTERNAME
+    $backupRoot = Join-Path $drivePath "Backup_${computerName}_$timestamp"
+    New-Item -ItemType Directory -Force -Path $backupRoot | Out-Null
+
+    $txtStatus.AppendText("Starting backup to $backupRoot`r`n")
+
+    foreach ($user in $selectedUsers) {
+        foreach ($folderName in $selectedFolders) {
+            $sourcePath = Join-Path "C:\Users\$user" $folderName
+            if (Test-Path $sourcePath) {
+                $destPath = Join-Path $backupRoot "$user\$folderName"
+                New-Item -ItemType Directory -Force -Path $destPath | Out-Null
+                $txtStatus.AppendText("Backing up $folderName for $user`r`n")
+                Copy-Item $sourcePath\* $destPath -Recurse -Force -ErrorAction SilentlyContinue
+            } else {
+                $txtStatus.AppendText("Skipped $folderName for $user (not found)`r`n")
+            }
+        }
+    }
+    $txtStatus.AppendText("Backup completed!`r`n")
+    [System.Windows.Forms.MessageBox]::Show("Backup completed successfully!","Success")
+})
+
+# --- Recover Button Logic ---
+$btnRecover.Add_Click({
+    $folderBrowser = New-Object System.Windows.Forms.FolderBrowserDialog
+    $folderBrowser.Description = "Select Backup Folder to Restore"
+
+    # --- Use selected drive as default if available ---
+    if ($cbDrives.SelectedItem) {
+        $driveLetter = ($cbDrives.SelectedItem -split ':')[0]
+        if ($driveLetter -match '^[A-Z]$') { $folderBrowser.SelectedPath = "$driveLetter`:\" }
+    }
+
+    if ($folderBrowser.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+        $backupFolder = $folderBrowser.SelectedPath
+        $recUsers = Get-ChildItem $backupFolder -Directory | Select-Object -ExpandProperty Name
+
+        if ($recUsers.Count -eq 0) { [System.Windows.Forms.MessageBox]::Show("No backup users found in selected folder.","Error"); return }
+
+        $recForm = New-Object System.Windows.Forms.Form
+        $recForm.Text = "Backup Recovery"
+        $recForm.Size = New-Object System.Drawing.Size(400,400)
+        $recForm.StartPosition = "CenterParent"
+        $recForm.BackColor = [System.Drawing.Color]::FromArgb(30,30,30)
+
+        $panelRecUsers = New-Object System.Windows.Forms.Panel
+        $panelRecUsers.Location = [System.Drawing.Point]::new(10,10)
+        $panelRecUsers.Size = [System.Drawing.Size]::new(360,280)
+        $panelRecUsers.AutoScroll = $true
+        $panelRecUsers.BackColor = [System.Drawing.Color]::FromArgb(40,40,40)
+        $recForm.Controls.Add($panelRecUsers)
+
+        $recUserCheckboxes = @{}
+        $y = 10
+        foreach ($userDir in $recUsers) {
+            $chk = New-Object System.Windows.Forms.CheckBox
+            $chk.Location = [System.Drawing.Point]::new(10,$y)
+            $chk.Size = [System.Drawing.Size]::new(300,25)
+            $chk.Text = $userDir
+            $chk.ForeColor = [System.Drawing.Color]::White
+            $panelRecUsers.Controls.Add($chk)
+            $recUserCheckboxes[$userDir] = $chk
+            $y += 30
+        }
+
+        $btnRecStart = New-Object System.Windows.Forms.Button
+        $btnRecStart.Location = [System.Drawing.Point]::new(10,300)
+        $btnRecStart.Size = [System.Drawing.Size]::new(150,30)
+        $btnRecStart.Text = "Start Recovery"
+        $btnRecStart.BackColor = [System.Drawing.Color]::FromArgb(0,120,215)
+        $btnRecStart.ForeColor = [System.Drawing.Color]::White
+        $btnRecStart.FlatStyle = "Flat"
+        $recForm.Controls.Add($btnRecStart)
+
+        # Recovery logic with error handling for no selections
+        $btnRecStart.Add_Click({
+            $selectedRecUsers = $recUserCheckboxes.Keys | Where-Object { $recUserCheckboxes[$_].Checked }
+            if ($selectedRecUsers.Count -eq 0) { [System.Windows.Forms.MessageBox]::Show("Please select at least one user to recover.","Error"); return }
+
+            $selectedFolders = $folders | Where-Object { $checkboxes[$_].Checked }
+            if ($selectedFolders.Count -eq 0) { [System.Windows.Forms.MessageBox]::Show("Please select at least one folder to recover.","Error"); return }
+
+            foreach ($user in $selectedRecUsers) {
+                $destUserPath = Join-Path "C:\Users" $user
+                if (-not (Test-Path $destUserPath)) {
+                    $txtStatus.AppendText("Profile not found for $user, skipping recovery.`r`n")
+                    continue
+                }
+
+                foreach ($folderName in $selectedFolders) {
+                    $sourcePath = Join-Path $backupFolder "$user\$folderName"
+                    $destPath = Join-Path $destUserPath $folderName
+                    if (Test-Path $sourcePath) {
+                        $files = Get-ChildItem $sourcePath -Recurse -File
+                        foreach ($file in $files) {
+                            $relPath = $file.FullName.Substring($sourcePath.Length).TrimStart('\')
+                            $destFile = Join-Path $destPath $relPath
+                            $destDir = Split-Path $destFile -Parent
+                            if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Force -Path $destDir | Out-Null }
+
+                            if (Test-Path $destFile) {
+                                $resp = [System.Windows.Forms.MessageBox]::Show("File exists: $destFile`r`nOverwrite?","Confirm Overwrite",[System.Windows.Forms.MessageBoxButtons]::YesNoCancel)
+                                if ($resp -eq [System.Windows.Forms.DialogResult]::Yes) {
+                                    Copy-Item $file.FullName -Destination $destFile -Force
+                                } elseif ($resp -eq [System.Windows.Forms.DialogResult]::Cancel) {
+                                    return
+                                }
+                            } else {
+                                Copy-Item $file.FullName -Destination $destFile -Force
+                            }
+                        }
+                        $txtStatus.AppendText("Recovered $folderName for $user`r`n")
+                    } else {
+                        $txtStatus.AppendText("Backup folder not found: $sourcePath`r`n")
+                    }
+                }
+            }
+            [System.Windows.Forms.MessageBox]::Show("Recovery completed!","Success")
+            $recForm.Close()
+        })
+
+        $recForm.ShowDialog()
+    }
+})
+
+# --- Show Main Form ---
+$form.ShowDialog()
